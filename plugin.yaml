@@ -1,0 +1,34 @@
+schema: mcpg.dev/plugin/v1
+id: dev.mcpg.observability.otlp
+name: OpenTelemetry OTLP Exporter
+license: Apache-2.0
+description: |
+  TelemetrySink plugin: forwards gateway-emitted span lifecycle
+  events (traces only) to an OpenTelemetry Collector (or any
+  OTLP-compatible backend such as Datadog, Honeycomb, Grafana Tempo,
+  New Relic) over gRPC. Metric and log signals are NOT exported by
+  this plugin — `metric_recorded` / `log_recorded` are no-op stubs;
+  wire a dedicated `metrics_sink` (e.g. dev.mcpg.observability.
+  prometheus) and `log_sink` for those signals.
+
+  Operators wire this plugin via:
+    observability:
+      traces:
+        sinks:
+          - kind: dev.mcpg.observability.otlp
+            config:
+              url: "http://otel-collector:4317"
+              service_name: mcpg
+              service_version: "1.0.0"        # optional
+              resource_attributes:            # optional
+                deployment.environment: prod
+              batch_export_timeout_ms: 30000  # optional batch tuning
+
+  Spans flow through the OTel SDK's batch span processor, so the
+  plugin's `span_ended` is a fire-and-forget enqueue — slow OTLP
+  collectors do not back-pressure the gateway request path.
+class: telemetry_sink
+runtime: native-cdylib-v1
+protocol_version: "1.0"
+required_capabilities:
+  - network_outbound
