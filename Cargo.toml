@@ -1,6 +1,6 @@
 [package]
 name = "mcpg-plugin-observability-otlp"
-version = "0.1.0-alpha.15"
+version = "0.1.0-alpha.16"
 license = "Apache-2.0"
 edition = "2024"
 description = "OpenTelemetry OTLP-gRPC observability plugin (`dev.mcpg.observability.otlp`) — fans gateway spans (and metric/log events) into the OTel SDK's batch exporter for delivery to any OTLP collector"
@@ -12,8 +12,8 @@ description = "OpenTelemetry OTLP-gRPC observability plugin (`dev.mcpg.observabi
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-mcpg-plugin-protocol = { git = "https://github.com/mcpg-dev/mcpg-plugin-protocol", tag = "v0.1.0-beta.13", version = "=0.1.0-beta.13" }
-mcpg-plugin-sdk = { git = "https://github.com/mcpg-dev/mcpg-plugin-sdk", tag = "v0.1.0-beta.13", version = "=0.1.0-beta.13" }
+mcpg-plugin-protocol = { git = "https://github.com/mcpg-dev/mcpg-plugin-protocol", tag = "v0.1.0-beta.14", version = "=0.1.0-beta.14" }
+mcpg-plugin-sdk = { git = "https://github.com/mcpg-dev/mcpg-plugin-sdk", tag = "v0.1.0-beta.14", version = "=0.1.0-beta.14" }
 metrics = "0.24"
 opentelemetry = "0.32"
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "trace"] }
