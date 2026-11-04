@@ -1,6 +1,6 @@
 [package]
 name = "mcpg-plugin-observability-otlp"
-version = "0.1.0-rc.6"
+version = "0.1.0"
 license = "Apache-2.0"
 edition = "2024"
 description = "OpenTelemetry OTLP-gRPC observability plugin (`dev.mcpg.observability.otlp`) — fans gateway spans (and metric/log events) into the OTel SDK's batch exporter for delivery to any OTLP collector"
