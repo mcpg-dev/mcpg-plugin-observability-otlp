@@ -12,11 +12,10 @@
 //!
 //! 1. `from_config_json` parses the operator's `config:` block but
 //!    does NOT yet install the SDK exporter. OTel installation is
-//!    deferred to first emit because the FFI host might call
-//!    `make()` from a non-tokio thread; we lazily fish the ambient
-//!    runtime from [`tokio::runtime::Handle::try_current()`] on
-//!    first emit (which always arrives from a tokio task via the
-//!    telemetry-sink bridge).
+//!    deferred to first emit. The exporter's gRPC channel needs a
+//!    tokio runtime: the ambient one when the plugin is linked into
+//!    the host, else (a cdylib has its own tokio, which sees no host
+//!    runtime) a one-worker runtime the sink owns.
 //! 2. `span_started` stashes the [`SpanStart`] event in a pending
 //!    map keyed by `(trace_id, span_id)`. Span construction defers
 //!    until the matching `span_ended` arrives.
@@ -93,6 +92,9 @@ pub struct OtlpSink {
     /// SDK tracer provider — lazily initialized on first emit.
     /// Wrapped in `OnceLock` to enforce single-init.
     provider: OnceLock<SdkTracerProvider>,
+    /// The runtime the gRPC channel runs on when no ambient runtime is
+    /// visible. It lives as long as the provider that uses it.
+    runtime: OnceLock<tokio::runtime::Runtime>,
     /// Pending starts keyed by `(trace_id, span_id)`.
     pending: Mutex<PendingSpans>,
 }
@@ -130,13 +132,14 @@ impl OtlpSink {
             },
             config,
             provider: OnceLock::new(),
+            runtime: OnceLock::new(),
             pending: Mutex::new(BTreeMap::new()),
         }
     }
 
     /// Lazily initialize the SDK tracer provider on first emit.
     /// Returns `None` (degraded mode) when the configured URL is
-    /// empty or no tokio runtime is available.
+    /// empty or the exporter cannot be built.
     fn ensure_provider(&self) -> Option<&SdkTracerProvider> {
         if let Some(p) = self.provider.get() {
             return Some(p);
@@ -148,14 +151,18 @@ impl OtlpSink {
             );
             return None;
         }
-        if tokio::runtime::Handle::try_current().is_err() {
-            tracing::warn!(
-                plugin_id = PLUGIN_ID,
-                "no tokio runtime available — OTLP sink in degraded mode (events dropped)"
-            );
-            return None;
-        }
-        let provider = match build_provider(&self.config) {
+        let built = if tokio::runtime::Handle::try_current().is_ok() {
+            build_provider(&self.config)
+        } else {
+            match self.own_runtime() {
+                Ok(rt) => {
+                    let _entered = rt.enter();
+                    build_provider(&self.config)
+                }
+                Err(e) => Err(e),
+            }
+        };
+        let provider = match built {
             Ok(p) => p,
             Err(e) => {
                 tracing::warn!(
@@ -168,6 +175,19 @@ impl OtlpSink {
         };
         let _ = self.provider.set(provider);
         self.provider.get()
+    }
+
+    fn own_runtime(&self) -> Result<&tokio::runtime::Runtime, String> {
+        if let Some(rt) = self.runtime.get() {
+            return Ok(rt);
+        }
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("mcpg-otlp")
+            .enable_all()
+            .build()
+            .map_err(|e| format!("OTLP runtime build failed: {e}"))?;
+        Ok(self.runtime.get_or_init(|| rt))
     }
 
     #[cfg(test)]
@@ -577,8 +597,6 @@ mod tests {
 
     #[test]
     fn span_started_stashes_into_pending_map() {
-        // No tokio runtime active -> ensure_provider returns None,
-        // but span_started still records the pending start.
         let sink = OtlpSink::with_config(config_with_url());
         sink.span_started(&span_start("a", "b"));
         assert_eq!(sink.pending_count(), 1);
@@ -587,9 +605,24 @@ mod tests {
     #[test]
     fn span_ended_without_matching_start_drops_silently() {
         let sink = OtlpSink::with_config(config_with_url());
-        // No runtime -> provider is None -> early-return path.
         sink.span_ended(&span_end("never", "started"));
         assert_eq!(sink.pending_count(), 0);
+    }
+
+    #[test]
+    fn without_an_ambient_runtime_the_provider_runs_on_its_own() {
+        let sink = OtlpSink::with_config(config_with_url());
+        sink.span_started(&span_start("trace-1", "span-1"));
+        sink.span_ended(&span_end("trace-1", "span-1"));
+        assert!(
+            sink.provider.get().is_some(),
+            "no provider without an ambient runtime"
+        );
+        assert!(
+            sink.runtime.get().is_some(),
+            "the provider is not on the sink's runtime"
+        );
+        sink.shutdown();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

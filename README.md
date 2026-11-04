@@ -35,16 +35,13 @@ recorded as a `debug` line and otherwise ignored; wire a `metrics_sink` and a
   shutdown indefinitely.
 
 ## Configuration
-Referenced by id from the dedicated `observability.traces.sinks[]` list — not
-from the `plugins:` list. The plugin is compiled into the gateway binary and
-registers itself when its id appears in that list and the traces signal is on.
-
-Capability grants are read separately, from the `plugins:` entry whose `id` is
-the plugin id: whatever that entry lists under `granted_capabilities` is what
-the plugin is granted. Because this plugin declares `network_outbound`, that
-grant has to be present, or registration fails and the gateway refuses to start
-with a capability error. Config validation applies to such an entry like any
-other — it must name exactly one of `source.path` or `source.oci`.
+The plugin is a cdylib: a `plugins:` entry with `class: telemetry_sink` loads
+it, from exactly one of `source.path` or `source.oci`, and its
+`granted_capabilities` must list `network_outbound`, or the gateway refuses to
+start with a capability error. The `observability.traces.sinks[]` entry whose
+`kind` is the plugin id turns the sink on, and its `config:` is the plugin's
+config. Write the config there or on the `plugins:` entry, not in both places
+with different values: the gateway refuses to start then.
 
 ```yaml
 observability:
